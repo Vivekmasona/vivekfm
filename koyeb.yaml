@@ -1,0 +1,9 @@
+name: bihar-fm-sync
+type: web
+build:
+  type: docker
+run:
+  command: npm start
+ports:
+  - port: 10000
+    protocol: http
