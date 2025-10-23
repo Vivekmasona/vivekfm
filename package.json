@@ -1,15 +1,21 @@
 {
   "name": "bihar-fm-server",
   "version": "1.0.0",
-  "description": "Live FM broadcast signaling server",
+  "description": "🎧 Real-time FM WebSocket + Express server for Bihar FM",
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "npm cache clean --force"
   },
   "dependencies": {
     "express": "^4.21.2",
     "ws": "^8.18.3",
     "cors": "^2.8.5"
-  }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "author": "VivekFM",
+  "license": "MIT"
 }
