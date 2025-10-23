@@ -59,6 +59,5 @@ setInterval(() => {
   if (isPlaying) currentTime += 1;
 }, 1000);
 
-// ✅ FIX 1: Remove 10000 (Koyeb assigns its own port)
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => console.log(`✅ FM Server running on port ${PORT}`));
