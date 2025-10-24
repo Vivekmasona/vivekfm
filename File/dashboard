@@ -1,0 +1,254 @@
+<!doctype html>
+
+
+
+
+BiharFM Broadcaster – Fullscreen
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+<style>
+:root {
+  --accent:#ff2b2b; 
+  --green:#2ecc71; 
+  --bg:radial-gradient(circle at top left,#0a0a10,#000); 
+  --text:#fff; 
+  --muted:#aaa;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;width:100%;font-family:"Poppins",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;}
+main{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;width:100%;padding:40px 20px;text-align:center;}
+h1{font-size:2.4rem;color:var(--accent);margin-bottom:20px;letter-spacing:1px;}
+#goLive{background:var(--accent);color:white;border:none;padding:16px 45px;font-size:20px;border-radius:50px;cursor:pointer;transition:0.3s;margin-bottom:30px;}
+#goLive.active{background:var(--green);box-shadow:0 0 25px rgba(46,204,113,0.8);}
+#searchBox{display:flex;gap:10px;width:100%;max-width:600px;margin-bottom:25px;}
+#searchInput{flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px;color:white;font-size:15px;outline:none;}
+#searchButton{background:var(--accent);color:#fff;border:none;border-radius:12px;padding:14px 20px;cursor:pointer;font-size:16px;transition:0.3s;}
+#songList{overflow-y:auto;max-height:35vh;width:100%;max-width:600px;text-align:left;padding-right:8px;}
+.songItem{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;background:rgba(255,255,255,0.05);margin-bottom:8px;cursor:pointer;transition:0.3s;}
+.songItem:hover{background:var(--accent);}
+.songItem img{width:55px;height:55px;border-radius:8px;object-fit:cover;}
+.controls{display:flex;justify-content:center;gap:15px;margin-top:25px;flex-wrap:wrap;}
+.control{background:rgba(255,255,255,0.08);color:var(--text);border:none;border-radius:50%;width:70px;height:70px;font-size:24px;cursor:pointer;transition:0.3s;display:flex;align-items:center;justify-content:center;}
+.control:hover{background:var(--accent);color:#fff;transform:scale(1.1);}
+.seek-container{width:90%;max-width:600px;margin-top:25px;}
+input[type="range"]{width:100%;accent-color:var(--accent);cursor:pointer;}
+.time{display:flex;justify-content:space-between;font-size:0.9rem;color:var(--muted);margin-top:6px;}
+#status{margin-top:15px;color:var(--muted);font-size:1rem;}
+.live-indicator{position:fixed;top:20px;right:30px;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:1rem;}
+.dot{width:12px;height:12px;border-radius:50%;background:gray;transition:background 0.3s,box-shadow 0.3s;}
+.dot.live{background:var(--green);box-shadow:0 0 10px var(--green);}
+@media(max-width:500px){
+  .controls{gap:10px;}
+  .control{width:60px;height:60px;font-size:20px;}
+  h1{font-size:1.8rem;}
+}
+</style>
+
+
+
+<div class="live-indicator">
+  <div class="dot" id="liveDot"></div>
+  <span id="liveText">Offline</span>
+</div>
+
+<main>
+  <h1><i class="fa-solid fa-tower-broadcast"></i> BiharFM Broadcaster</h1>
+  <button id="goLive"><i class="fa-solid fa-power-off"></i> Go Live</button>
+
+  <div id="searchBox">
+    <input type="text" id="searchInput" placeholder="Search VivekFy..." />
+    <button id="searchButton"><i class="fa fa-search"></i></button>
+  </div>
+
+  <div id="songList"></div>
+
+  <div class="controls">
+    <button class="control" id="prevBtn"><i class="fa-solid fa-backward-step"></i></button>
+    <button class="control" id="playPauseBtn"><i class="fa-solid fa-play"></i></button>
+    <button class="control" id="nextToggleBtn" title="Auto-Play Next" style="color:var(--accent)"><i class="fa-solid fa-forward-step"></i></button>
+    <button class="control" id="repeatBtn" title="Repeat Song"><i class="fa-solid fa-rotate-right"></i></button>
+    <button class="control" id="muteBtn"><i class="fa-solid fa-volume-xmark"></i></button>
+  </div>
+
+  <div class="seek-container">
+    <input type="range" id="seek" min="0" max="100" value="0" />
+    <div class="time">
+      <span id="current">0:00</span>
+      <span id="duration">0:00</span>
+    </div>
+  </div>
+
+  <p id="status">Offline</p>
+</main>
+
+<audio id="player" preload="metadata" muted></audio>
+
+<script>
+const SERVER="wss://vivekfm.onrender.com?key=supersecret123";
+let ws=null, isLive=false, reconnectTimeout=null;
+let isMuted=true, seeking=false, playlist=[], currentIndex=0;
+let autoNext=true, repeat=false;
+
+const player=document.getElementById("player");
+const goLive=document.getElementById("goLive");
+const playPauseBtn=document.getElementById("playPauseBtn");
+const muteBtn=document.getElementById("muteBtn");
+const prevBtn=document.getElementById("prevBtn");
+const nextToggleBtn=document.getElementById("nextToggleBtn");
+const repeatBtn=document.getElementById("repeatBtn");
+const seek=document.getElementById("seek");
+const current=document.getElementById("current");
+const duration=document.getElementById("duration");
+const status=document.getElementById("status");
+const liveDot=document.getElementById("liveDot");
+const liveText=document.getElementById("liveText");
+const searchInput=document.getElementById("searchInput");
+const searchButton=document.getElementById("searchButton");
+const songList=document.getElementById("songList");
+
+function formatTime(sec){
+  const m=Math.floor(sec/60);
+  const s=Math.floor(sec%60);
+  return `${m}:${s.toString().padStart(2,'0')}`;
+}
+
+function playSong(index){
+  if(!playlist[index]) return;
+  currentIndex=index;
+  player.src=playlist[index].downloadUrl[1]?.link;
+  player.play();
+  playPauseBtn.innerHTML='<i class="fa-solid fa-pause"></i>';
+  status.textContent=`▶️ Now Live: ${playlist[index].name}`;
+  if(isLive) sendWS({type:"play", song:player.src, title:playlist[index].name, image:playlist[index].image[1]?.link||null, currentTime:player.currentTime});
+}
+
+function playNext(){if(currentIndex<playlist.length-1) playSong(currentIndex+1);}
+function playPrevious(){if(currentIndex>0) playSong(currentIndex-1);}
+
+// WebSocket handling
+function sendWS(msg){
+  if(ws && ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify(msg));
+  }
+}
+
+function connectWS(){
+  if(ws && (ws.readyState===WebSocket.OPEN || ws.readyState===WebSocket.CONNECTING)) return;
+
+  ws = new WebSocket(SERVER);
+
+  ws.onopen = ()=>{
+    console.log("✅ Connected");
+    isLive=true;
+    goLive.classList.add("active");
+    goLive.innerHTML='<i class="fa-solid fa-broadcast-tower"></i> Live Now';
+    liveDot.classList.add("live");
+    liveText.textContent="Live";
+    status.textContent="🟢 Connected";
+
+    // Resume current song on reconnect
+    if(player.src){
+      sendWS({type:"play", song:player.src, title:playlist[currentIndex]?.name, image:playlist[currentIndex]?.image[1]?.link||null, currentTime:player.currentTime});
+    }
+  };
+
+  ws.onclose = ()=>{
+    console.log("⚠️ Disconnected");
+    isLive=false;
+    goLive.classList.remove("active");
+    goLive.innerHTML='<i class="fa-solid fa-power-off"></i> Go Live';
+    liveDot.classList.remove("live");
+    liveText.textContent="Offline";
+    status.textContent="🔴 Disconnected";
+
+    if(!reconnectTimeout){
+      reconnectTimeout = setTimeout(()=>{
+        reconnectTimeout=null;
+        connectWS();
+      }, 5000);
+    }
+  };
+
+  ws.onerror = (err)=>{
+    console.error("WebSocket error", err);
+    ws.close();
+  };
+}
+
+// Heartbeat to keep connection alive
+setInterval(()=>{
+  if(ws && ws.readyState===WebSocket.OPEN){
+    ws.send(JSON.stringify({type:"ping"}));
+  }
+},20000);
+
+// Player events
+player.ontimeupdate=()=>{if(!seeking && player.duration) seek.value=(player.currentTime/player.duration)*100; current.textContent=formatTime(player.currentTime);}
+player.onloadedmetadata=()=>duration.textContent=formatTime(player.duration);
+seek.oninput=()=>seeking=true;
+seek.onchange=()=>{seeking=false;player.currentTime=(seek.value/100)*player.duration;if(isLive) sendWS({type:"seek",time:player.currentTime});}
+
+// Play/Pause
+playPauseBtn.onclick=()=>{
+  if(!player.src) playSong(0);
+  if(player.paused){
+    player.play();
+    playPauseBtn.innerHTML='<i class="fa-solid fa-pause"></i>';
+    if(isLive) sendWS({type:"resume"});
+  } else {
+    player.pause();
+    playPauseBtn.innerHTML='<i class="fa-solid fa-play"></i>';
+    if(isLive) sendWS({type:"pause"});
+  }
+};
+
+// Mute
+muteBtn.onclick=()=>{
+  isMuted=!isMuted;
+  player.muted=isMuted;
+  muteBtn.innerHTML=isMuted?'<i class="fa-solid fa-volume-xmark"></i>':'<i class="fa-solid fa-volume-high"></i>';
+};
+
+// Previous/Next/Repeat
+prevBtn.onclick=playPrevious;
+nextToggleBtn.onclick=()=>{autoNext=!autoNext;nextToggleBtn.style.color=autoNext?"var(--accent)":"#fff";}
+repeatBtn.onclick=()=>{repeat=!repeat;repeatBtn.style.color=repeat?"var(--accent)":"#fff";}
+
+// Song end
+player.onended=()=>{
+  if(repeat){
+    player.currentTime=0;
+    player.play();
+  } else if(autoNext && currentIndex<playlist.length-1){
+    playNext();
+  } else {
+    player.pause();
+    playPauseBtn.innerHTML='<i class="fa-solid fa-play"></i>';
+  }
+};
+
+// Go Live button
+goLive.onclick=connectWS;
+
+// Search
+searchButton.onclick=()=>{
+  const q=searchInput.value.trim();
+  if(!q) return;
+  songList.innerHTML='<p>Searching...</p>';
+  fetch(`https://svn-vivekfy.vercel.app/search/songs?query=${encodeURIComponent(q)}`)
+  .then(res=>res.json())
+  .then(data=>{
+    playlist=data?.data?.results||[];
+    songList.innerHTML='';
+    playlist.forEach((song,i)=>{
+      const div=document.createElement('div');
+      div.className='songItem';
+      div.innerHTML=`<img src="${song.image[1]?.link}" alt=""><div><b>${song.name}</b><br><small>${song.primaryArtists||'Unknown'}</small></div>`;
+      div.onclick=()=>playSong(i);
+      songList.appendChild(div);
+    });
+  }).catch(console.error);
+};
+</script>
+
+
+</!doctype>
