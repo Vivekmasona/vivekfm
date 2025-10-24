@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BiharFM Live</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --live: #ff2b2b;
+  --text: #fff;
+}
+
+html, body {
+  margin: 0; padding: 0;
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  touch-action: none;
+}
+
+body {
+  background: url('https://source.unsplash.com/1600x900/?music,studio') center/cover no-repeat;
+  display: flex; justify-content: center; align-items: center;
+  position: relative;
+}
+body::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  z-index: 0;
+}
+
+/* Waves */
+.wave {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 200px; height: 200px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 0;
+}
+.wave.active {
+  border-color: var(--live);
+  animation: ripple 4.5s ease-out infinite;
+}
+.wave:nth-child(1) { animation-delay: 0s; }
+.wave:nth-child(2) { animation-delay: 1.5s; }
+.wave:nth-child(3) { animation-delay: 3s; }
+
+@keyframes ripple {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+  70% { transform: translate(-50%, -50%) scale(2.5); opacity: 0.2; }
+  100% { transform: translate(-50%, -50%) scale(3); opacity: 0; }
+}
+
+/* Main Button */
+.main-btn {
+  position: relative;
+  z-index: 3;
+  width: 150px; height: 150px;
+  border-radius: 50%;
+  background: rgba(40,40,40,0.9);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 25px rgba(255,255,255,0.05);
+  cursor: pointer;
+  transition: background 0.3s, box-shadow 0.3s;
+  user-select: none;
+}
+.main-btn.live {
+  background: var(--live);
+  box-shadow: 0 0 45px rgba(255,0,0,0.35);
+}
+svg { width: 70px; height: 70px; fill: white; }
+
+/* Title Notification */
+#titleNotif {
+  position: fixed;
+  top: -80px; left: 50%;
+  transform: translateX(-50%) scale(0.8);
+  background: rgba(255,43,43,0.95);
+  color: #fff;
+  padding: 14px 26px;
+  border-radius: 35px;
+  font-family: "Poppins", sans-serif;
+  box-shadow: 0 5px 15px rgba(255,0,0,0.3);
+  font-size: 17px;
+  opacity: 0;
+  z-index: 100;
+}
+@keyframes dropIn {
+  0% { top: -80px; opacity: 0; transform: translateX(-50%) scale(0.8); }
+  30% { top: 30px; opacity: 1; transform: translateX(-50%) scale(1.05); }
+  50% { top: 20px; transform: translateX(-50%) scale(1); }
+  100% { top: -80px; opacity: 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="wave"></div>
+<div class="wave"></div>
+<div class="wave"></div>
+
+<div class="main-btn" id="btn">
+  <svg id="icon" viewBox="0 0 24 24">
+    <path d="M8 5v14l11-7z"/>
+  </svg>
+</div>
+
+<div id="titleNotif">🎵 BiharFM Live</div>
+<audio id="player" preload="metadata"></audio>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+
+<script>
+const SERVER = "wss://vivekfm.onrender.com";
+const player = document.getElementById("player");
+const btn = document.getElementById("btn");
+const icon = document.getElementById("icon");
+const waves = document.querySelectorAll(".wave");
+const notif = document.getElementById("titleNotif");
+
+let ws, reconnect = 2000, playing = false;
+
+/* 🔔 Title Notification */
+function showTitle(title) {
+  notif.textContent = "🎵 " + title;
+  notif.style.animation = "none";
+  void notif.offsetWidth;
+  notif.style.animation = "dropIn 8s ease forwards";
+}
+
+/* 🎛 Icon Toggle */
+function setIcon(state) {
+  icon.innerHTML = (state === "play")
+    ? '<path d="M8 5v14l11-7z"/>'
+    : '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+}
+
+/* 🌊 Button Visuals */
+function activateUI() {
+  playing = true;
+  btn.classList.add("live");
+  waves.forEach(w => w.classList.add("active"));
+  setIcon("pause");
+}
+function deactivateUI() {
+  playing = false;
+  btn.classList.remove("live");
+  waves.forEach(w => w.classList.remove("active"));
+  setIcon("play");
+}
+
+/* 🛰 Message Handler */
+function handleMessage(data) {
+  if (["status","play","meta"].includes(data.type)) {
+    if (data.title) showTitle(data.title);
+    if (data.image) document.body.style.backgroundImage = `url(${data.image})`;
+    if (data.song) player.src = data.song;
+    if (data.time) player.currentTime = data.time;
+    player.play().catch(()=>{});
+    activateUI();
+  }
+  if (data.type === "pause") { player.pause(); deactivateUI(); }
+  if (data.type === "resume") { player.play(); activateUI(); }
+  if (data.type === "seek") player.currentTime = data.time;
+}
+
+/* 🔌 WebSocket Connection */
+function connect() {
+  ws = new WebSocket(SERVER);
+  ws.onopen = ()=> ws.send(JSON.stringify({ type: "getStatus" }));
+  ws.onmessage = e => handleMessage(JSON.parse(e.data));
+  ws.onclose = ()=> setTimeout(connect, reconnect);
+}
+connect();
+
+/* ❤️ Ping KeepAlive */
+setInterval(()=>{ if(ws?.readyState===1) ws.send(JSON.stringify({type:"ping"})); },10000);
+
+/* ▶️ Button Play/Pause */
+btn.onclick = ()=>{
+  if (player.paused) {
+    player.play();
+    activateUI();
+    ws?.send(JSON.stringify({type:"resume"}));
+  } else {
+    player.pause();
+    deactivateUI();
+    ws?.send(JSON.stringify({type:"pause"}));
+  }
+};
+
+/* 🔊 Always Auto-Play */
+window.addEventListener("load", ()=>{
+  player.play().catch(()=>{});
+  activateUI();
+});
+
+/* 🧩 Hidden Broadcaster Controls (for Dev Console Only) */
+function sendPlay(songUrl, title, image=null) {
+  if(ws?.readyState!==1) return;
+  ws.send(JSON.stringify({ type:"play", song:songUrl, title, image, playing:true, time:0 }));
+}
+function sendPause() { ws?.send(JSON.stringify({ type:"pause" })); }
+function sendResume() { ws?.send(JSON.stringify({ type:"resume" })); }
+function sendSeek(time) { ws?.send(JSON.stringify({ type:"seek", time })); }
+function sendMeta(title, image=null) { ws?.send(JSON.stringify({ type:"meta", title, image })); }
+function sendStatus() { ws?.send(JSON.stringify({ type:"getStatus" })); }
+
+console.log("%c🎙 BiharFM WS Control Ready!", "color:#ff2b2b;font-weight:bold;");
+console.log("%cUse: sendPlay('https://example.com/song.mp3','Song Title')", "color:#00ff99;");
+</script>
+</body>
+</html>
